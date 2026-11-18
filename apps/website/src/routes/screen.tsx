@@ -1,5 +1,5 @@
 import { WebMercatorViewport } from '@deck.gl/core';
-import { LineLayer, ScatterplotLayer } from '@deck.gl/layers';
+import { BitmapLayer, LineLayer, ScatterplotLayer } from '@deck.gl/layers';
 import DeckGL from '@deck.gl/react';
 import { createFileRoute, useLocation } from '@tanstack/react-router';
 import { Map, type MapRef } from '@vis.gl/react-maplibre';
@@ -7,7 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { screenEngine } from '../lib/realtime/engines/screen-engine';
 import { useScreenStore } from '../lib/realtime/stores/screen-store';
-import type { ArcSegment, ScreenMapViewState } from '../lib/realtime/types';
+import type { ArcSegment, MapLayer, ScreenMapViewState } from '../lib/realtime/types';
 
 import '@fontsource-variable/space-grotesk';
 import 'maplibre-gl/dist/maplibre-gl.css';
@@ -28,6 +28,11 @@ const MARKERS_LAYER_ID = 'markers-layer';
 const PTAL_IMAGE_URL = '/ptal_ai.png';
 const PTAL_IMAGE_SOURCE_ID = 'ptal-image-source';
 const PTAL_IMAGE_LAYER_ID = 'ptal-image-layer';
+const PTAL_BUS_IMAGE_URL = '/ptal_bus.png';
+const PTAL_BUS_SOURCE_ID = 'ptal-bus-source';
+const PTAL_BUS_LAYER_ID = 'ptal-bus-layer';
+// Deliberately below 1 so basemap place names stay visible through the PTAL image; tune between 0.6 and 0.8.
+const PTAL_LAYER_OPACITY = 0.7;
 // Corners in MapLibre order: top-left, top-right, bottom-right, bottom-left (lon, lat).
 const PTAL_IMAGE_COORDINATES: [
     [number, number],
@@ -40,11 +45,6 @@ const PTAL_IMAGE_COORDINATES: [
     [0.33544, 51.28533],
     [-0.51174, 51.28533]
 ];
-// PTAL 2023 compact rows: [lon, lat, level 0-8, AI, bus score].
-// Levels map to 0, 1a, 1b, 2, 3, 4, 5, 6a, 6b.
-const PTAL_URL = '/ptal_compact.json';
-// Circles slightly larger than the 100 m squares so neighbours touch.
-const PTAL_SQUARE_RADIUS_M = 60;
 // Starter-kit city arcs, switched off for the PTAL story.
 const SHOW_DEMO_ARCS = false;
 // Viridis-style ramp, dark (no access) to bright (excellent access).
@@ -60,6 +60,18 @@ const PTAL_COLORS: Array<[number, number, number, number]> = [
     [253, 231, 37, 230]
 ];
 const PTAL_RGB_COLORS = PTAL_COLORS.map(([red, green, blue]) => `rgb(${red}, ${green}, ${blue})`);
+const BUS_COLORS: Array<[number, number, number]> = [
+    [40, 10, 10],
+    [84, 19, 19],
+    [128, 25, 25],
+    [170, 35, 30],
+    [205, 60, 30],
+    [230, 90, 30],
+    [245, 125, 35],
+    [252, 165, 60],
+    [255, 215, 130]
+];
+const BUS_RGB_COLORS = BUS_COLORS.map(([red, green, blue]) => `rgb(${red}, ${green}, ${blue})`);
 
 // Story copy and figures come from the PTAL 2023 grid (159,451 squares; 47.0% = levels 0, 1a, 1b; 5.9% = levels 6a, 6b; shares of 100 m grid squares, which means area, not people).
 const PTAL_GRID_SQUARE_COUNT = 159_451;
@@ -84,10 +96,24 @@ const LOW_ACCESS_SQUARES = 74_934;
 const EXCELLENT_ACCESS_SQUARES = 9_350;
 const LOW_ACCESS_AREA_KM2 = 750;
 const EXCELLENT_ACCESS_AREA_KM2 = 94;
+// from the PTAL 2023 grid: bus score banded with the PTAL band edges; served squares = squares with AI above 0 (159,451 minus 29,944 at level 0)
+const BUS_LOW_ACCESS_FIGURE = '51.4%';
+const BUS_LOW_ACCESS_SQUARES = 66_613;
+const BUS_SERVED_SQUARES = 129_507;
+const BUS_LOW_ACCESS_AREA_KM2 = 666;
+const BUS_EXCELLENT_ACCESS_FIGURE = 'About 1%';
+const BUS_LOW_ACCESS_LINE = "Of London's served area relies on ";
+const BUS_LOW_ACCESS_HIGHLIGHT = 'buses alone';
+const BUS_LOW_ACCESS_DESCRIPTION = 'No Tube, rail or tram within reach';
+const BUS_EXCELLENT_ACCESS_LINE = "Of London's area reaches ";
+const BUS_EXCELLENT_ACCESS_HIGHLIGHT = 'PTAL 6a';
+const BUS_EXCELLENT_ACCESS_SUFFIX = ' on buses alone.';
+const BUS_EXCELLENT_ACCESS_DETAIL = 'Versus 5.9% when all modes count';
 const AREA_COMPARISON_DETAIL = 'Low access covers about 8 times more area.';
 const STAT_DETAIL_FONT_SIZE = '5vh';
 // legend and credit text is below the 20vh budget, needs design-review approval
 const PTAL_LEGEND_CAPTION = 'PTAL band (0 lowest, 6b highest)';
+const BUS_LEGEND_CAPTION = 'Bus-only score, banded on the PTAL scale';
 const PTAL_BAND_CODES = ['0', '1a', '1b', '2', '3', '4', '5', '6a', '6b'];
 const PTAL_DATA_CREDIT =
     'Data: Transport for London. © Crown copyright and database rights 2026 Ordnance Survey AC0000806239.';
@@ -116,8 +142,6 @@ type SiteMarker = {
     weight: number;
 };
 
-type PtalRow = [lon: number, lat: number, level: number, ai: number, bus: number];
-
 export const Route = createFileRoute('/screen')({
     component: ScreenPage
 });
@@ -130,6 +154,7 @@ function ScreenPage() {
     const screenR = parseScreenCoordinate(searchParams.r, WALL_ROWS, 0);
 
     const mapView = useScreenStore((state) => state.mapView);
+    const layer = useScreenStore((state) => state.layer);
     const arcSegments = useScreenStore((state) => state.arcSegments);
     const selectedSegmentIndexes = useScreenStore((state) => state.selectedSegmentIndexes);
     const [isClient, setIsClient] = useState(false);
@@ -142,25 +167,6 @@ function ScreenPage() {
     const lastRevealedPathsRef = useRef<CurvedPath[] | null>(null);
     const lastRevealedDeckSegmentsRef = useRef<CurvedSegment[] | null>(null);
     const [mapInstance, setMapInstance] = useState<ReturnType<MapRef['getMap']> | null>(null);
-    const [ptalRows, setPtalRows] = useState<PtalRow[]>([]);
-
-    useEffect(() => {
-        let cancelled = false;
-        fetch(PTAL_URL)
-            .then((response) => {
-                if (!response.ok) throw new Error(`PTAL fetch failed: ${response.status}`);
-                return response.json() as Promise<unknown>;
-            })
-            .then((data) => {
-                if (cancelled) return;
-                if (!isPtalData(data)) throw new Error('PTAL data has an unexpected shape');
-                setPtalRows(data);
-            })
-            .catch((error) => console.error(error));
-        return () => {
-            cancelled = true;
-        };
-    }, []);
 
     const setMapRef = useCallback((instance: MapRef | null) => {
         setMapInstance(instance?.getMap() ?? null);
@@ -355,18 +361,28 @@ function ScreenPage() {
         [siteMarkers]
     );
 
-    const ptalLayer = useMemo(
+    const ptalAiLayer = useMemo(
         () =>
-            new ScatterplotLayer<PtalRow>({
-                id: 'ptal-squares',
-                data: ptalRows,
-                getPosition: (d) => [d[0], d[1]],
-                getFillColor: (d) => PTAL_COLORS[d[2]],
-                radiusUnits: 'meters',
-                getRadius: PTAL_SQUARE_RADIUS_M,
-                pickable: false
+            new BitmapLayer({
+                id: 'ptal-ai-image',
+                image: PTAL_IMAGE_URL,
+                bounds: [-0.51174, 51.28533, 0.33544, 51.69357],
+                opacity: layer === 'total' ? PTAL_LAYER_OPACITY : 0,
+                transitions: { opacity: 600 }
             }),
-        [ptalRows]
+        [layer]
+    );
+
+    const ptalBusLayer = useMemo(
+        () =>
+            new BitmapLayer({
+                id: 'ptal-bus-image',
+                image: PTAL_BUS_IMAGE_URL,
+                bounds: [-0.51174, 51.28533, 0.33544, 51.69357],
+                opacity: layer === 'bus' ? PTAL_LAYER_OPACITY : 0,
+                transitions: { opacity: 600 }
+            }),
+        [layer]
     );
 
     useEffect(() => {
@@ -392,13 +408,46 @@ function ScreenPage() {
                         type: 'raster',
                         source: PTAL_IMAGE_SOURCE_ID,
                         paint: {
-                            'raster-opacity': 1,
+                            'raster-opacity': layer === 'total' ? PTAL_LAYER_OPACITY : 0,
+                            'raster-opacity-transition': { duration: 600, delay: 0 },
                             'raster-fade-duration': 0
                         }
                     });
                 }
+
+                if (!mapInstance.getSource(PTAL_BUS_SOURCE_ID)) {
+                    mapInstance.addSource(PTAL_BUS_SOURCE_ID, {
+                        type: 'image',
+                        url: PTAL_BUS_IMAGE_URL,
+                        coordinates: PTAL_IMAGE_COORDINATES
+                    });
+                }
+
+                if (!mapInstance.getLayer(PTAL_BUS_LAYER_ID)) {
+                    mapInstance.addLayer({
+                        id: PTAL_BUS_LAYER_ID,
+                        type: 'raster',
+                        source: PTAL_BUS_SOURCE_ID,
+                        paint: {
+                            'raster-opacity': layer === 'bus' ? PTAL_LAYER_OPACITY : 0,
+                            'raster-opacity-transition': { duration: 600, delay: 0 },
+                            'raster-fade-duration': 0
+                        }
+                    });
+                }
+
+                mapInstance.setPaintProperty(
+                    PTAL_IMAGE_LAYER_ID,
+                    'raster-opacity',
+                    layer === 'total' ? PTAL_LAYER_OPACITY : 0
+                );
+                mapInstance.setPaintProperty(
+                    PTAL_BUS_LAYER_ID,
+                    'raster-opacity',
+                    layer === 'bus' ? PTAL_LAYER_OPACITY : 0
+                );
             } catch (error) {
-                console.error('Failed to add PTAL image layer', error);
+                console.error('Failed to add PTAL image layers', error);
             }
 
             if (!SHOW_DEMO_ARCS) return;
@@ -541,7 +590,53 @@ function ScreenPage() {
         return () => {
             mapInstance.off('load', syncLines);
         };
-    }, [curvedPaths, isClient, mapInstance, markersGeojson, segmentsGeojson, useDeckWrapper]);
+    }, [
+        curvedPaths,
+        isClient,
+        layer,
+        mapInstance,
+        markersGeojson,
+        segmentsGeojson,
+        useDeckWrapper
+    ]);
+
+    useEffect(() => {
+        if (!isClient || useDeckWrapper || !mapInstance) return;
+
+        let hasAppliedOpacity = false;
+        const syncLayerOpacity = () => {
+            if (hasAppliedOpacity || !mapInstance.isStyleLoaded()) return false;
+            if (
+                !mapInstance.getLayer(PTAL_IMAGE_LAYER_ID) ||
+                !mapInstance.getLayer(PTAL_BUS_LAYER_ID)
+            ) {
+                return false;
+            }
+
+            mapInstance.setPaintProperty(
+                PTAL_IMAGE_LAYER_ID,
+                'raster-opacity',
+                layer === 'total' ? PTAL_LAYER_OPACITY : 0
+            );
+            mapInstance.setPaintProperty(
+                PTAL_BUS_LAYER_ID,
+                'raster-opacity',
+                layer === 'bus' ? PTAL_LAYER_OPACITY : 0
+            );
+            hasAppliedOpacity = true;
+            return true;
+        };
+
+        if (syncLayerOpacity()) return;
+
+        mapInstance.on('load', syncLayerOpacity);
+        mapInstance.on('styledata', syncLayerOpacity);
+
+        return () => {
+            mapInstance.off('load', syncLayerOpacity);
+            mapInstance.off('styledata', syncLayerOpacity);
+        };
+    }, [isClient, layer, mapInstance, useDeckWrapper]);
 
     return (
         <main className="pointer-events-none h-screen w-screen overflow-hidden bg-zinc-950 text-zinc-100">
@@ -553,7 +648,9 @@ function ScreenPage() {
                             controller={false}
                             viewState={localScreenMapView}
                             layers={
-                                SHOW_DEMO_ARCS ? [ptalLayer, markerLayer, lineLayer] : [ptalLayer]
+                                SHOW_DEMO_ARCS
+                                    ? [ptalAiLayer, ptalBusLayer, markerLayer, lineLayer]
+                                    : [ptalAiLayer, ptalBusLayer]
                             }
                             style={{ width: '100%', height: '100%' }}
                         >
@@ -577,13 +674,21 @@ function ScreenPage() {
                         />
                     ) : null}
                 </div>
-                <StoryOverlay screenC={screenC} screenR={screenR} />
+                <StoryOverlay screenC={screenC} screenR={screenR} layer={layer} />
             </div>
         </main>
     );
 }
 
-function StoryOverlay({ screenC, screenR }: { screenC: number; screenR: number }) {
+function StoryOverlay({
+    screenC,
+    screenR,
+    layer
+}: {
+    screenC: number;
+    screenR: number;
+    layer: MapLayer;
+}) {
     const className =
         'pointer-events-none absolute inset-0 font-semibold leading-[1.05] text-zinc-50';
     const style = {
@@ -631,6 +736,9 @@ function StoryOverlay({ screenC, screenR }: { screenC: number; screenR: number }
     }
 
     if (screenC === 1 && screenR === 0) {
+        const legendColors = layer === 'bus' ? BUS_RGB_COLORS : PTAL_RGB_COLORS;
+        const legendCaption = layer === 'bus' ? BUS_LEGEND_CAPTION : PTAL_LEGEND_CAPTION;
+
         return (
             <div className={className} style={style}>
                 <div
@@ -647,7 +755,7 @@ function StoryOverlay({ screenC, screenR }: { screenC: number; screenR: number }
                             className="m-0 shrink-0 text-right"
                             style={{ width: '28vw', maxWidth: '28vw', fontSize: '4vh' }}
                         >
-                            {PTAL_LEGEND_CAPTION}
+                            {legendCaption}
                         </p>
                         <div className="flex min-w-0 flex-1 items-start" style={{ gap: '0.25vw' }}>
                             {PTAL_BAND_CODES.map((band, index) => (
@@ -659,7 +767,7 @@ function StoryOverlay({ screenC, screenR }: { screenC: number; screenR: number }
                                         style={{
                                             width: '100%',
                                             height: '6vh',
-                                            backgroundColor: PTAL_RGB_COLORS[index]
+                                            backgroundColor: legendColors[index]
                                         }}
                                     />
                                     <span style={{ fontSize: '4vh', marginTop: '0.5vh' }}>
@@ -696,8 +804,15 @@ function StoryOverlay({ screenC, screenR }: { screenC: number; screenR: number }
     }
 
     if (screenC === 2 && (screenR === 0 || screenR === 1)) {
+        const isBusLayer = layer === 'bus';
         const isLowAccess = screenR === 0;
-        const figure = isLowAccess ? LOW_ACCESS_FIGURE : EXCELLENT_ACCESS_FIGURE;
+        const figure = isBusLayer
+            ? isLowAccess
+                ? BUS_LOW_ACCESS_FIGURE
+                : BUS_EXCELLENT_ACCESS_FIGURE
+            : isLowAccess
+              ? LOW_ACCESS_FIGURE
+              : EXCELLENT_ACCESS_FIGURE;
         const areaPrefix = isLowAccess ? LOW_ACCESS_AREA_PREFIX : EXCELLENT_ACCESS_AREA_PREFIX;
         const band = isLowAccess ? LOW_ACCESS_BAND : EXCELLENT_ACCESS_BAND;
         const description = isLowAccess ? LOW_ACCESS_DESCRIPTION : EXCELLENT_ACCESS_DESCRIPTION;
@@ -713,31 +828,88 @@ function StoryOverlay({ screenC, screenR }: { screenC: number; screenR: number }
                             {figure}
                         </p>
                         <p className="m-0" style={{ fontSize: '12vh', marginTop: '1vh' }}>
-                            {areaPrefix}
-                            <Highlight>{band}</Highlight>.
+                            {isBusLayer ? (
+                                isLowAccess ? (
+                                    <>
+                                        {BUS_LOW_ACCESS_LINE}
+                                        <Highlight>{BUS_LOW_ACCESS_HIGHLIGHT}</Highlight>.
+                                    </>
+                                ) : (
+                                    <>
+                                        {BUS_EXCELLENT_ACCESS_LINE}
+                                        <Highlight>{BUS_EXCELLENT_ACCESS_HIGHLIGHT}</Highlight>
+                                        {BUS_EXCELLENT_ACCESS_SUFFIX}
+                                    </>
+                                )
+                            ) : (
+                                <>
+                                    {areaPrefix}
+                                    <Highlight>{band}</Highlight>.
+                                </>
+                            )}
                         </p>
-                        <p className="m-0" style={{ fontSize: '8vh', marginTop: '1vh' }}>
-                            {description}
-                        </p>
-                        <p
-                            className="m-0"
-                            style={{ fontSize: STAT_DETAIL_FONT_SIZE, marginTop: '1vh' }}
-                        >
-                            {(isLowAccess
-                                ? LOW_ACCESS_SQUARES
-                                : EXCELLENT_ACCESS_SQUARES
-                            ).toLocaleString('en-US')}{' '}
-                            of {PTAL_GRID_SQUARE_COUNT.toLocaleString('en-US')} grid squares, about{' '}
-                            {isLowAccess ? LOW_ACCESS_AREA_KM2 : EXCELLENT_ACCESS_AREA_KM2}
-                            {'\u00a0km²'}
-                        </p>
-                        {!isLowAccess && (
-                            <p
-                                className="m-0"
-                                style={{ fontSize: STAT_DETAIL_FONT_SIZE, marginTop: '1vh' }}
-                            >
-                                {AREA_COMPARISON_DETAIL}
-                            </p>
+                        {isBusLayer ? (
+                            <>
+                                <p
+                                    className="m-0"
+                                    style={{
+                                        fontSize: STAT_DETAIL_FONT_SIZE,
+                                        marginTop: '1vh'
+                                    }}
+                                >
+                                    {isLowAccess ? (
+                                        <>
+                                            {BUS_LOW_ACCESS_SQUARES.toLocaleString('en-US')} of{' '}
+                                            {BUS_SERVED_SQUARES.toLocaleString('en-US')} served grid
+                                            squares, about {BUS_LOW_ACCESS_AREA_KM2}
+                                            {'\u00a0km²'}
+                                        </>
+                                    ) : (
+                                        BUS_EXCELLENT_ACCESS_DETAIL
+                                    )}
+                                </p>
+                                {isLowAccess && (
+                                    <p
+                                        className="m-0"
+                                        style={{ fontSize: '8vh', marginTop: '1vh' }}
+                                    >
+                                        {BUS_LOW_ACCESS_DESCRIPTION}
+                                    </p>
+                                )}
+                            </>
+                        ) : (
+                            <>
+                                <p className="m-0" style={{ fontSize: '8vh', marginTop: '1vh' }}>
+                                    {description}
+                                </p>
+                                <p
+                                    className="m-0"
+                                    style={{
+                                        fontSize: STAT_DETAIL_FONT_SIZE,
+                                        marginTop: '1vh'
+                                    }}
+                                >
+                                    {(isLowAccess
+                                        ? LOW_ACCESS_SQUARES
+                                        : EXCELLENT_ACCESS_SQUARES
+                                    ).toLocaleString('en-US')}{' '}
+                                    of {PTAL_GRID_SQUARE_COUNT.toLocaleString('en-US')} grid
+                                    squares, about{' '}
+                                    {isLowAccess ? LOW_ACCESS_AREA_KM2 : EXCELLENT_ACCESS_AREA_KM2}
+                                    {'\u00a0km²'}
+                                </p>
+                                {!isLowAccess && (
+                                    <p
+                                        className="m-0"
+                                        style={{
+                                            fontSize: STAT_DETAIL_FONT_SIZE,
+                                            marginTop: '1vh'
+                                        }}
+                                    >
+                                        {AREA_COMPARISON_DETAIL}
+                                    </p>
+                                )}
+                            </>
                         )}
                     </div>
                 </div>
@@ -756,6 +928,7 @@ function Highlight({ children }: { children: string }) {
                 color: '#0b0b0b',
                 padding: '0 0.15em',
                 borderRadius: '0.1em',
+                whiteSpace: 'nowrap',
                 boxDecorationBreak: 'clone',
                 WebkitBoxDecorationBreak: 'clone'
             }}
@@ -934,19 +1107,4 @@ function lerp(from: number, to: number, t: number) {
 
 function easeInOutCubic(t: number) {
     return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
-}
-
-function isPtalData(value: unknown): value is PtalRow[] {
-    if (!Array.isArray(value) || value.length === 0) return false;
-    // Spot-check the first, middle and last rows rather than all 159k.
-    return [0, Math.floor(value.length / 2), value.length - 1].every((i) => {
-        const row = value[i];
-        return (
-            Array.isArray(row) &&
-            row.length === 5 &&
-            row.every((n) => typeof n === 'number') &&
-            row[2] >= 0 &&
-            row[2] <= 8
-        );
-    });
 }

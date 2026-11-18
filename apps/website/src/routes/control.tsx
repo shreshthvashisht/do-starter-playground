@@ -47,7 +47,7 @@ function ControlPage() {
                 </header>
 
                 <section className="flex gap-4">
-                    <div className="grid gap-2">
+                    <div className="grid grid-cols-2 gap-2">
                         <Button
                             // City selection emits a deterministic map-view command to all screens.
                             onClick={() => controlEngine.selectCity('london')}
@@ -59,14 +59,14 @@ function ControlPage() {
                         <Button
                             onClick={() => controlEngine.setLayer('total')}
                             variant={selectedLayer === 'total' ? 'highlight' : 'normal'}
-                            className="text-left"
+                            className="h-9 w-full text-left"
                         >
                             Total access
                         </Button>
                         <Button
                             onClick={() => controlEngine.setLayer('bus')}
                             variant={selectedLayer === 'bus' ? 'highlight' : 'normal'}
-                            className="text-left"
+                            className="h-9 w-full text-left"
                         >
                             Bus only
                         </Button>
