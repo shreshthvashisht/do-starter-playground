@@ -2,6 +2,9 @@
 
 Entry for the Imperial Data for Humanity internships. A wall-scale story built on the DO starter playground, using Transport for London's PTAL 2023 grid (Public Transport Access Level, 159,451 squares of 100 m across Greater London).
 
+![Total access layer](docs/wall-total.png)
+![Bus-only layer](docs/wall-bus.png)
+
 ## What it shows
 
 - **Total access layer:** each square coloured by its PTAL band (0 to 6b). 47.0% of squares are PTAL 0 to 1b (little or no service within walking distance); 5.9% are PTAL 6a to 6b (excellent access).
@@ -27,6 +30,12 @@ Source: TfL GIS Open Data Hub, "PTAL 2023 Grid 100mx100m Data" (GeoJSON download
 4. `python scripts/render_bus_image.py` writes `apps/website/public/ptal_bus.png`.
 
 `notebooks/explore_ptal.ipynb` holds the checks: row counts match the source (159,451), no nulls or duplicate squares, AI equals the sum of the four mode scores, and the band counts match TfL's published summary.
+
+## Next steps
+
+- Weight by population: join the LSOA aggregated PTAL stats to census data, so the story can say how many people live in low-access areas, not only how much area.
+- Drill-down: click an area on the control panel to see its PTAL band and bus dependence.
+- Scale to the real wall: move from the 3 x 2 test wall to 16 x 4 and re-frame the story across the extra screens.
 
 ## Caveats
 
