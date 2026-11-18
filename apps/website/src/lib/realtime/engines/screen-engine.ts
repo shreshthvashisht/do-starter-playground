@@ -5,11 +5,13 @@ import type {
     ArcSegment,
     BusMessage,
     HelloBusMessage,
+    ScreenLayerMessage,
     ScreenMapViewMessage,
     ScreenMapViewState,
     ScreenSegmentSelectionMessage,
     ScreenStoreState
 } from '../types';
+import { isMapLayer } from '../types';
 import { BusEngine } from './bus-engine';
 
 export class ScreenEngine extends BusEngine<ScreenStoreState> {
@@ -78,6 +80,12 @@ export class ScreenEngine extends BusEngine<ScreenStoreState> {
     }
 
     protected override onMessage(message: BusMessage) {
+        if (message.type === 'screen/layer') {
+            const layerMessage = message as ScreenLayerMessage;
+            this.applyLayer(layerMessage.layer);
+            return;
+        }
+
         if (message.type === 'screen/map-view') {
             const mapViewMessage = message as ScreenMapViewMessage;
             this.applyMapViewMessage(mapViewMessage);
@@ -99,7 +107,13 @@ export class ScreenEngine extends BusEngine<ScreenStoreState> {
             city: hello.state.city,
             view: { zoom: hello.state.zoom }
         });
+        this.applyLayer(hello.state.layer);
         this.applySegmentSelection(hello.state.selectedSegmentIndexes);
+    }
+
+    private applyLayer(layer: unknown) {
+        if (!isMapLayer(layer)) return;
+        this.store.setState((prev) => (prev.layer === layer ? prev : { ...prev, layer }));
     }
 
     private applyMapViewMessage(mapViewMessage: ScreenMapViewMessage) {

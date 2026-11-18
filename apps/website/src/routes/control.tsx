@@ -29,6 +29,7 @@ function ControlPage() {
     const { operator } = Route.useSearch();
     const sliderValue = useControlStore((state) => state.sliderValue);
     const selectedCity = useControlStore((state) => state.selectedCity);
+    const selectedLayer = useControlStore((state) => state.selectedLayer);
 
     return (
         <main className="h-screen w-screen overflow-hidden bg-[var(--background)] text-[var(--foreground)]">
@@ -54,6 +55,20 @@ function ControlPage() {
                             className="text-left"
                         >
                             London
+                        </Button>
+                        <Button
+                            onClick={() => controlEngine.setLayer('total')}
+                            variant={selectedLayer === 'total' ? 'highlight' : 'normal'}
+                            className="text-left"
+                        >
+                            Total access
+                        </Button>
+                        <Button
+                            onClick={() => controlEngine.setLayer('bus')}
+                            variant={selectedLayer === 'bus' ? 'highlight' : 'normal'}
+                            className="text-left"
+                        >
+                            Bus only
                         </Button>
                     </div>
                     <div className="flex flex-col gap-2">

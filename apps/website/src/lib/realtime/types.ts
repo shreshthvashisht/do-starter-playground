@@ -23,10 +23,16 @@ export type ScreenSegmentSelectionMessage = BusMessage & {
 };
 
 export type MapCity = 'london' | 'paris' | 'berlin' | 'madrid' | 'rome' | 'amsterdam';
+export type MapLayer = 'total' | 'bus';
+
+export function isMapLayer(value: unknown): value is MapLayer {
+    return value === 'total' || value === 'bus';
+}
 
 export type BusSharedState = {
     city: MapCity;
     zoom: number;
+    layer: MapLayer;
     selectedSegmentIndexes: number[];
 };
 
@@ -42,6 +48,11 @@ export type ScreenMapViewMessage = BusMessage & {
     type: 'screen/map-view';
     view: Partial<ScreenMapViewState>;
     city?: MapCity;
+};
+
+export type ScreenLayerMessage = BusMessage & {
+    type: 'screen/layer';
+    layer: MapLayer;
 };
 
 export type ArcSegment = {
@@ -79,11 +90,13 @@ export type ControlStoreState = EngineStoreState & {
     sliderValue: number;
     isSliderInteracting: boolean;
     selectedCity: MapCity;
+    selectedLayer: MapLayer;
     selectedSegmentIndexes: number[];
 };
 
 export type ScreenStoreState = EngineStoreState & {
     mapView: ScreenMapViewState;
+    layer: MapLayer;
     arcSegments: ArcSegment[];
     selectedSegmentIndexes: number[];
     isArcSegmentsLoading: boolean;
@@ -94,6 +107,7 @@ export const createInitialControlStoreState = (): ControlStoreState => ({
     sliderValue: 25,
     isSliderInteracting: false,
     selectedCity: 'london',
+    selectedLayer: 'total',
     selectedSegmentIndexes: []
 });
 
@@ -106,6 +120,7 @@ export const createInitialScreenStoreState = (): ScreenStoreState => ({
         bearing: 0,
         pitch: 0
     },
+    layer: 'total',
     arcSegments: [],
     selectedSegmentIndexes: [],
     isArcSegmentsLoading: false

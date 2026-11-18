@@ -4,10 +4,12 @@ import { defineHooks } from 'crossws';
 import type {
     BusMessage,
     BusSharedState,
+    ScreenLayerMessage,
     ScreenMapViewMessage,
     ScreenSegmentSelectionMessage
 } from '../lib/realtime';
 import { isMapCity } from '../lib/realtime/map-cities';
+import { isMapLayer } from '../lib/realtime/types';
 
 // In-memory bus state for this server process.
 // New clients receive this snapshot in the `hello` handshake so they can
@@ -15,6 +17,7 @@ import { isMapCity } from '../lib/realtime/map-cities';
 const busSharedState: BusSharedState = {
     city: 'london',
     zoom: 11,
+    layer: 'total',
     selectedSegmentIndexes: []
 };
 
@@ -47,7 +50,7 @@ const hooks = defineHooks({
         } catch {
             return;
         }
-        updateBusSharedState(payload);
+        if (!updateBusSharedState(payload)) return;
 
         // Broadcast to all peers. Each client engine can ignore own echoes via peerId.
         peer.publish('do', {
@@ -67,6 +70,13 @@ const hooks = defineHooks({
 });
 
 function updateBusSharedState(payload: Partial<BusMessage>) {
+    if (payload.type === 'screen/layer') {
+        const message = payload as Partial<ScreenLayerMessage>;
+        if (!isMapLayer(message.layer)) return false;
+        busSharedState.layer = message.layer;
+        return true;
+    }
+
     if (payload.type === 'screen/map-view') {
         const message = payload as Partial<ScreenMapViewMessage>;
         // Preserve last known valid city/zoom for hello-state replay.
@@ -77,12 +87,12 @@ function updateBusSharedState(payload: Partial<BusMessage>) {
         if (typeof message.view?.zoom === 'number') {
             busSharedState.zoom = message.view.zoom;
         }
-        return;
+        return true;
     }
 
     if (payload.type === 'screen/segment-selection') {
         const message = payload as Partial<ScreenSegmentSelectionMessage>;
-        if (!Array.isArray(message.indexes)) return;
+        if (!Array.isArray(message.indexes)) return true;
 
         // Keep indexes deterministic for easier equality checks in clients and debugging.
         busSharedState.selectedSegmentIndexes = message.indexes
@@ -90,6 +100,7 @@ function updateBusSharedState(payload: Partial<BusMessage>) {
             .slice()
             .sort((a, b) => a - b);
     }
+    return true;
 }
 
 export const Route = createFileRoute('/bus')({

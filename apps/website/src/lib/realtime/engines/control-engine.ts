@@ -9,9 +9,12 @@ import type {
     ControlStoreState,
     HelloBusMessage,
     MapCity,
+    MapLayer,
+    ScreenLayerMessage,
     ScreenMapViewMessage,
     ScreenSegmentSelectionMessage
 } from '../types';
+import { isMapLayer } from '../types';
 import { BusEngine } from './bus-engine';
 
 const SLIDER_BROADCAST_WAIT_MS = 100;
@@ -126,6 +129,26 @@ export class ControlEngine extends BusEngine<ControlStoreState> {
         });
     }
 
+    setLayer(layer: MapLayer) {
+        let hasChanged = false;
+        this.store.setState((prev) => {
+            if (prev.selectedLayer === layer) return prev;
+            hasChanged = true;
+            return {
+                ...prev,
+                selectedLayer: layer
+            };
+        });
+
+        if (!hasChanged) return;
+
+        this.send({
+            type: 'screen/layer',
+            layer,
+            peerId: this.getPeerId() ?? undefined
+        });
+    }
+
     async shuffleSegments() {
         // Demo helper: choose a random subset for immediate visual feedback.
         const segmentCount = await this.ensureSegmentCount();
@@ -191,6 +214,17 @@ export class ControlEngine extends BusEngine<ControlStoreState> {
             return;
         }
 
+        if (message.type === 'screen/layer') {
+            const layerMessage = message as ScreenLayerMessage;
+            if (!isMapLayer(layerMessage.layer)) return;
+            this.store.setState((prev) =>
+                prev.selectedLayer === layerMessage.layer
+                    ? prev
+                    : { ...prev, selectedLayer: layerMessage.layer }
+            );
+            return;
+        }
+
         if (message.type === 'screen/segment-selection') {
             const segmentSelectionMessage = message as ScreenSegmentSelectionMessage;
             if (!Array.isArray(segmentSelectionMessage.indexes)) return;
@@ -217,6 +251,7 @@ export class ControlEngine extends BusEngine<ControlStoreState> {
         this.store.setState((prev) => {
             const nextCity = state.city;
             const nextSliderValue = this.sliderFromZoom(state.zoom);
+            const nextLayer = isMapLayer(state.layer) ? state.layer : prev.selectedLayer;
             const nextSelectedIndexes = Array.isArray(state.selectedSegmentIndexes)
                 ? state.selectedSegmentIndexes
                       .filter((value): value is number => Number.isInteger(value) && value >= 0)
@@ -226,6 +261,7 @@ export class ControlEngine extends BusEngine<ControlStoreState> {
             if (
                 prev.selectedCity === nextCity &&
                 prev.sliderValue === nextSliderValue &&
+                prev.selectedLayer === nextLayer &&
                 arraysEqual(prev.selectedSegmentIndexes, nextSelectedIndexes)
             ) {
                 return prev;
@@ -234,6 +270,7 @@ export class ControlEngine extends BusEngine<ControlStoreState> {
                 ...prev,
                 selectedCity: nextCity,
                 sliderValue: nextSliderValue,
+                selectedLayer: nextLayer,
                 selectedSegmentIndexes: nextSelectedIndexes
             };
         });
