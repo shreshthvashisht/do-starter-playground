@@ -69,7 +69,7 @@ const STORY_TITLE_HIGHLIGHT = 'network';
 const STORY_TITLE_LINE_FOUR = 'built for?';
 const PTAL_DEFINITION_HEADING = 'What is PTAL?';
 const PTAL_DEFINITION_BODY =
-    'Public Transport Access Level. Each 100 m square of London is scored by walking time to stops and how often services run.';
+    'Public Transport Access Level. Each 100\u00a0m square of London is scored by walking time to stops and how often services run.';
 // 8vh to 12vh lines are secondary text and need design-review approval.
 const LOW_ACCESS_FIGURE = '47%';
 const LOW_ACCESS_AREA_PREFIX = "Of London's area is ";
@@ -79,8 +79,15 @@ const EXCELLENT_ACCESS_FIGURE = '5.9%';
 const EXCELLENT_ACCESS_AREA_PREFIX = "Of London's area is ";
 const EXCELLENT_ACCESS_BAND = 'PTAL 6a to 6b';
 const EXCELLENT_ACCESS_DESCRIPTION = 'Excellent access: Access Index above 25';
+// from the PTAL 2023 grid (TfL band counts); area is approximate at 1 hectare per 100 m square
+const LOW_ACCESS_SQUARES = 74_934;
+const EXCELLENT_ACCESS_SQUARES = 9_350;
+const LOW_ACCESS_AREA_KM2 = 750;
+const EXCELLENT_ACCESS_AREA_KM2 = 94;
+const AREA_COMPARISON_DETAIL = 'Low access covers about 8 times more area.';
+const STAT_DETAIL_FONT_SIZE = '5vh';
 // legend and credit text is below the 20vh budget, needs design-review approval
-const PTAL_LEGEND_CAPTION = 'PTAL band, 0 (lowest) to 6b (highest)';
+const PTAL_LEGEND_CAPTION = 'PTAL band (0 lowest, 6b highest)';
 const PTAL_BAND_CODES = ['0', '1a', '1b', '2', '3', '4', '5', '6a', '6b'];
 const PTAL_DATA_CREDIT =
     'Data: Transport for London. © Crown copyright and database rights 2026 Ordnance Survey AC0000806239.';
@@ -590,7 +597,7 @@ function StoryOverlay({ screenC, screenR }: { screenC: number; screenR: number }
             <div className={className} style={style}>
                 <div className="flex h-full items-center" style={{ padding: '4vh 4vw' }}>
                     <h2
-                        className="m-0 max-w-[65vw] text-left leading-[1.02]"
+                        className="m-0 max-w-[80vw] text-left leading-[1.02]"
                         style={{ fontSize: '20vh' }}
                     >
                         {STORY_TITLE_LINE_ONE}
@@ -610,14 +617,11 @@ function StoryOverlay({ screenC, screenR }: { screenC: number; screenR: number }
         return (
             <div className={className} style={style}>
                 <div className="flex h-full items-center" style={{ padding: '3vh 4vw' }}>
-                    <div
-                        className="flex flex-col"
-                        style={{ width: '65vw', maxWidth: '65vw', gap: '2vh' }}
-                    >
-                        <h2 className="m-0" style={{ fontSize: '20vh' }}>
+                    <div className="flex w-full flex-col" style={{ gap: '2vh' }}>
+                        <h2 className="m-0 max-w-[70vw]" style={{ fontSize: '20vh' }}>
                             {PTAL_DEFINITION_HEADING}
                         </h2>
-                        <p className="m-0" style={{ fontSize: 'min(10vh, 8vw)' }}>
+                        <p className="m-0 max-w-[88vw]" style={{ fontSize: '10vh' }}>
                             {PTAL_DEFINITION_BODY}
                         </p>
                     </div>
@@ -630,33 +634,40 @@ function StoryOverlay({ screenC, screenR }: { screenC: number; screenR: number }
         return (
             <div className={className} style={style}>
                 <div
-                    className="absolute"
-                    style={{ top: '4vh', right: '4vw', width: '60vw', maxWidth: '60vw' }}
+                    className="absolute flex items-center justify-center"
+                    style={{ top: '1.5vh', left: 0, width: '100%' }}
                 >
-                    <p className="m-0" style={{ fontSize: '4vh' }}>
-                        {PTAL_LEGEND_CAPTION}
-                    </p>
                     <div
                         role="group"
                         aria-label={`PTAL bands across ${PTAL_GRID_SQUARE_COUNT.toLocaleString()} 100 m grid squares`}
-                        className="flex"
-                        style={{ gap: '0.5vw', marginTop: '2vh' }}
+                        className="flex items-center"
+                        style={{ width: '88vw', maxWidth: '88vw', gap: '1.5vw' }}
                     >
-                        {PTAL_BAND_CODES.map((band, index) => (
-                            <div
-                                key={band}
-                                className="flex min-w-0 flex-1 flex-col items-center text-center"
-                            >
+                        <p
+                            className="m-0 shrink-0 text-right"
+                            style={{ width: '28vw', maxWidth: '28vw', fontSize: '4vh' }}
+                        >
+                            {PTAL_LEGEND_CAPTION}
+                        </p>
+                        <div className="flex min-w-0 flex-1 items-start" style={{ gap: '0.25vw' }}>
+                            {PTAL_BAND_CODES.map((band, index) => (
                                 <div
-                                    style={{
-                                        width: '100%',
-                                        height: '6vh',
-                                        backgroundColor: PTAL_RGB_COLORS[index]
-                                    }}
-                                />
-                                <span style={{ fontSize: '4vh', marginTop: '0.5vh' }}>{band}</span>
-                            </div>
-                        ))}
+                                    key={band}
+                                    className="flex min-w-0 flex-1 flex-col items-center text-center"
+                                >
+                                    <div
+                                        style={{
+                                            width: '100%',
+                                            height: '6vh',
+                                            backgroundColor: PTAL_RGB_COLORS[index]
+                                        }}
+                                    />
+                                    <span style={{ fontSize: '4vh', marginTop: '0.5vh' }}>
+                                        {band}
+                                    </span>
+                                </div>
+                            ))}
+                        </div>
                     </div>
                 </div>
             </div>
@@ -695,9 +706,9 @@ function StoryOverlay({ screenC, screenR }: { screenC: number; screenR: number }
             <div className={className} style={style}>
                 <div
                     className="flex h-full items-center justify-end"
-                    style={{ padding: '3vh 4vw' }}
+                    style={{ padding: '4vh 4vw' }}
                 >
-                    <div className="text-right" style={{ width: '65vw', maxWidth: '65vw' }}>
+                    <div className="text-right" style={{ width: '90vw', maxWidth: '90vw' }}>
                         <p className="m-0 font-bold" style={{ fontSize: '30vh' }}>
                             {figure}
                         </p>
@@ -708,6 +719,26 @@ function StoryOverlay({ screenC, screenR }: { screenC: number; screenR: number }
                         <p className="m-0" style={{ fontSize: '8vh', marginTop: '1vh' }}>
                             {description}
                         </p>
+                        <p
+                            className="m-0"
+                            style={{ fontSize: STAT_DETAIL_FONT_SIZE, marginTop: '1vh' }}
+                        >
+                            {(isLowAccess
+                                ? LOW_ACCESS_SQUARES
+                                : EXCELLENT_ACCESS_SQUARES
+                            ).toLocaleString('en-US')}{' '}
+                            of {PTAL_GRID_SQUARE_COUNT.toLocaleString('en-US')} grid squares, about{' '}
+                            {isLowAccess ? LOW_ACCESS_AREA_KM2 : EXCELLENT_ACCESS_AREA_KM2}
+                            {'\u00a0km²'}
+                        </p>
+                        {!isLowAccess && (
+                            <p
+                                className="m-0"
+                                style={{ fontSize: STAT_DETAIL_FONT_SIZE, marginTop: '1vh' }}
+                            >
+                                {AREA_COMPARISON_DETAIL}
+                            </p>
+                        )}
                     </div>
                 </div>
             </div>
