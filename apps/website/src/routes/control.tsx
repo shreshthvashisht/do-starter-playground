@@ -4,7 +4,6 @@ import { Button } from '../components/button';
 import { Slider } from '../components/slider';
 import { controlEngine } from '../lib/realtime/engines/control-engine';
 import { useControlStore } from '../lib/realtime/stores/control-store';
-import type { MapCity } from '../lib/realtime/types';
 
 type ControlSearch = {
     // Optional label so multiple control clients can be distinguished in the simulator.
@@ -23,23 +22,13 @@ export const Route = createFileRoute('/control')({
 
 function ControlPage() {
     // `/control` models a handheld/operator endpoint:
-    // - it sends intent (city, zoom, selection) into the websocket bus
+    // - it sends intent (city and zoom) into the websocket bus
     // - it does not render the heavy map visuals itself
     // This separation mirrors operational setups where controllers and wall screens have
     // different hardware constraints and UX goals.
     const { operator } = Route.useSearch();
     const sliderValue = useControlStore((state) => state.sliderValue);
     const selectedCity = useControlStore((state) => state.selectedCity);
-    const selectedSegmentIndexes = useControlStore((state) => state.selectedSegmentIndexes);
-    // Static city list is intentionally explicit for educational readability.
-    const cities: Array<{ value: MapCity; label: string }> = [
-        { value: 'london', label: 'London' },
-        { value: 'paris', label: 'Paris' },
-        { value: 'berlin', label: 'Berlin' },
-        { value: 'madrid', label: 'Madrid' },
-        { value: 'rome', label: 'Rome' },
-        { value: 'amsterdam', label: 'Amsterdam' }
-    ];
 
     return (
         <main className="h-screen w-screen overflow-hidden bg-[var(--background)] text-[var(--foreground)]">
@@ -57,19 +46,15 @@ function ControlPage() {
                 </header>
 
                 <section className="flex gap-4">
-                    <div className="grid grid-cols-2 gap-2">
-                        {cities.map((city) => (
-                            <Button
-                                key={city.value}
-                                // Each city click emits a deterministic map-view command
-                                // so every connected screen converges on the same location.
-                                onClick={() => controlEngine.selectCity(city.value)}
-                                variant={selectedCity === city.value ? 'highlight' : 'normal'}
-                                className="text-left"
-                            >
-                                {city.label}
-                            </Button>
-                        ))}
+                    <div className="grid gap-2">
+                        <Button
+                            // City selection emits a deterministic map-view command to all screens.
+                            onClick={() => controlEngine.selectCity('london')}
+                            variant={selectedCity === 'london' ? 'highlight' : 'normal'}
+                            className="text-left"
+                        >
+                            London
+                        </Button>
                     </div>
                     <div className="flex flex-col gap-2">
                         <Slider
@@ -80,18 +65,7 @@ function ControlPage() {
                                 controlEngine.setSliderInteracting(isInteracting)
                             }
                         />
-                        <p className="text-xs text-[var(--muted-foreground)]">
-                            Zoom Level: {sliderValue.toFixed(0)}
-                        </p>
-                        <p className="text-xs text-[var(--muted-foreground)]">
-                            Selected Lines: {selectedSegmentIndexes.length}
-                        </p>
-                        <Button
-                            onClick={() => void controlEngine.shuffleSegments()}
-                            variant="normal"
-                        >
-                            Shuffle Selection
-                        </Button>
+                        <p className="text-xs text-[var(--muted-foreground)]">Map zoom</p>
                     </div>
                 </section>
             </div>
