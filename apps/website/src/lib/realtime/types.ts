@@ -100,9 +100,9 @@ export const createInitialControlStoreState = (): ControlStoreState => ({
 export const createInitialScreenStoreState = (): ScreenStoreState => ({
     ...createInitialEngineStoreState('screen'),
     mapView: {
-        longitude: -0.1749,
-        latitude: 51.4988,
-        zoom: 9,
+        longitude: -0.09,
+        latitude: 51.49,
+        zoom: 11,
         bearing: 0,
         pitch: 0
     },

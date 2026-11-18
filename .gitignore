@@ -26,3 +26,5 @@ dist-ssr
 # Dependency directories and files
 node_modules
 .vite*/
+data/ptal2023.geojson
+data/ptal_compact.json

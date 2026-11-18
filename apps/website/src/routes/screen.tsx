@@ -9,6 +9,7 @@ import { screenEngine } from '../lib/realtime/engines/screen-engine';
 import { useScreenStore } from '../lib/realtime/stores/screen-store';
 import type { ArcSegment, ScreenMapViewState } from '../lib/realtime/types';
 
+import '@fontsource-variable/space-grotesk';
 import 'maplibre-gl/dist/maplibre-gl.css';
 
 const WALL_COLS = 3;
@@ -24,6 +25,65 @@ const SEGMENTS_SOURCE_ID = 'segments-source';
 const SEGMENTS_LAYER_ID = 'segments-layer';
 const MARKERS_SOURCE_ID = 'markers-source';
 const MARKERS_LAYER_ID = 'markers-layer';
+const PTAL_IMAGE_URL = '/ptal_ai.png';
+const PTAL_IMAGE_SOURCE_ID = 'ptal-image-source';
+const PTAL_IMAGE_LAYER_ID = 'ptal-image-layer';
+// Corners in MapLibre order: top-left, top-right, bottom-right, bottom-left (lon, lat).
+const PTAL_IMAGE_COORDINATES: [
+    [number, number],
+    [number, number],
+    [number, number],
+    [number, number]
+] = [
+    [-0.51174, 51.69357],
+    [0.33544, 51.69357],
+    [0.33544, 51.28533],
+    [-0.51174, 51.28533]
+];
+// PTAL 2023 compact rows: [lon, lat, level 0-8, AI, bus score].
+// Levels map to 0, 1a, 1b, 2, 3, 4, 5, 6a, 6b.
+const PTAL_URL = '/ptal_compact.json';
+// Circles slightly larger than the 100 m squares so neighbours touch.
+const PTAL_SQUARE_RADIUS_M = 60;
+// Starter-kit city arcs, switched off for the PTAL story.
+const SHOW_DEMO_ARCS = false;
+// Viridis-style ramp, dark (no access) to bright (excellent access).
+const PTAL_COLORS: Array<[number, number, number, number]> = [
+    [68, 1, 84, 230],
+    [72, 40, 120, 230],
+    [62, 74, 137, 230],
+    [49, 104, 142, 230],
+    [38, 130, 142, 230],
+    [31, 158, 137, 230],
+    [53, 183, 121, 230],
+    [109, 205, 89, 230],
+    [253, 231, 37, 230]
+];
+const PTAL_RGB_COLORS = PTAL_COLORS.map(([red, green, blue]) => `rgb(${red}, ${green}, ${blue})`);
+
+// Story copy and figures come from the PTAL 2023 grid (159,451 squares; 47.0% = levels 0, 1a, 1b; 5.9% = levels 6a, 6b; shares of 100 m grid squares, which means area, not people).
+const PTAL_GRID_SQUARE_COUNT = 159_451;
+const STORY_TITLE_LINE_ONE = 'Who is';
+const STORY_TITLE_LINE_TWO = "London's";
+const STORY_TITLE_HIGHLIGHT = 'network';
+const STORY_TITLE_LINE_FOUR = 'built for?';
+const PTAL_DEFINITION_HEADING = 'What is PTAL?';
+const PTAL_DEFINITION_BODY =
+    'Public Transport Access Level. Each 100 m square of London is scored by walking time to stops and how often services run.';
+// 8vh to 12vh lines are secondary text and need design-review approval.
+const LOW_ACCESS_FIGURE = '47%';
+const LOW_ACCESS_AREA_PREFIX = "Of London's area is ";
+const LOW_ACCESS_BAND = 'PTAL 0 to 1b';
+const LOW_ACCESS_DESCRIPTION = 'Little or no service within walking distance';
+const EXCELLENT_ACCESS_FIGURE = '5.9%';
+const EXCELLENT_ACCESS_AREA_PREFIX = "Of London's area is ";
+const EXCELLENT_ACCESS_BAND = 'PTAL 6a to 6b';
+const EXCELLENT_ACCESS_DESCRIPTION = 'Excellent access: Access Index above 25';
+// legend and credit text is below the 20vh budget, needs design-review approval
+const PTAL_LEGEND_CAPTION = 'PTAL band, 0 (lowest) to 6b (highest)';
+const PTAL_BAND_CODES = ['0', '1a', '1b', '2', '3', '4', '5', '6a', '6b'];
+const PTAL_DATA_CREDIT =
+    'Data: Transport for London. © Crown copyright and database rights 2026 Ordnance Survey AC0000806239.';
 
 // Each `/screen` instance represents one wall tile (`c`,`r`) and computes
 // a local camera from shared wall state. We keep a lighter fallback renderer for
@@ -49,6 +109,8 @@ type SiteMarker = {
     weight: number;
 };
 
+type PtalRow = [lon: number, lat: number, level: number, ai: number, bus: number];
+
 export const Route = createFileRoute('/screen')({
     component: ScreenPage
 });
@@ -73,6 +135,25 @@ function ScreenPage() {
     const lastRevealedPathsRef = useRef<CurvedPath[] | null>(null);
     const lastRevealedDeckSegmentsRef = useRef<CurvedSegment[] | null>(null);
     const [mapInstance, setMapInstance] = useState<ReturnType<MapRef['getMap']> | null>(null);
+    const [ptalRows, setPtalRows] = useState<PtalRow[]>([]);
+
+    useEffect(() => {
+        let cancelled = false;
+        fetch(PTAL_URL)
+            .then((response) => {
+                if (!response.ok) throw new Error(`PTAL fetch failed: ${response.status}`);
+                return response.json() as Promise<unknown>;
+            })
+            .then((data) => {
+                if (cancelled) return;
+                if (!isPtalData(data)) throw new Error('PTAL data has an unexpected shape');
+                setPtalRows(data);
+            })
+            .catch((error) => console.error(error));
+        return () => {
+            cancelled = true;
+        };
+    }, []);
 
     const setMapRef = useCallback((instance: MapRef | null) => {
         setMapInstance(instance?.getMap() ?? null);
@@ -267,6 +348,20 @@ function ScreenPage() {
         [siteMarkers]
     );
 
+    const ptalLayer = useMemo(
+        () =>
+            new ScatterplotLayer<PtalRow>({
+                id: 'ptal-squares',
+                data: ptalRows,
+                getPosition: (d) => [d[0], d[1]],
+                getFillColor: (d) => PTAL_COLORS[d[2]],
+                radiusUnits: 'meters',
+                getRadius: PTAL_SQUARE_RADIUS_M,
+                pickable: false
+            }),
+        [ptalRows]
+    );
+
     useEffect(() => {
         if (!isClient || useDeckWrapper) return;
 
@@ -274,6 +369,32 @@ function ScreenPage() {
 
         const syncLines = () => {
             if (!mapInstance.isStyleLoaded()) return;
+
+            try {
+                if (!mapInstance.getSource(PTAL_IMAGE_SOURCE_ID)) {
+                    mapInstance.addSource(PTAL_IMAGE_SOURCE_ID, {
+                        type: 'image',
+                        url: PTAL_IMAGE_URL,
+                        coordinates: PTAL_IMAGE_COORDINATES
+                    });
+                }
+
+                if (!mapInstance.getLayer(PTAL_IMAGE_LAYER_ID)) {
+                    mapInstance.addLayer({
+                        id: PTAL_IMAGE_LAYER_ID,
+                        type: 'raster',
+                        source: PTAL_IMAGE_SOURCE_ID,
+                        paint: {
+                            'raster-opacity': 1,
+                            'raster-fade-duration': 0
+                        }
+                    });
+                }
+            } catch (error) {
+                console.error('Failed to add PTAL image layer', error);
+            }
+
+            if (!SHOW_DEMO_ARCS) return;
 
             const startLineReveal = () => {
                 if (!mapInstance.getLayer(SEGMENTS_LAYER_ID)) return;
@@ -419,23 +540,14 @@ function ScreenPage() {
         <main className="pointer-events-none h-screen w-screen overflow-hidden bg-zinc-950 text-zinc-100">
             <div className="relative flex h-full w-full items-center justify-center">
                 <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_30%_20%,rgba(34,197,94,0.14),transparent_40%),radial-gradient(circle_at_80%_70%,rgba(14,165,233,0.12),transparent_45%)]" />
-                <div className="relative z-30 flex h-full w-full flex-col items-center justify-center gap-4">
-                    <p className="text-sm tracking-[0.35em] text-zinc-400 uppercase md:text-lg">
-                        Screen Node
-                    </p>
-                    <h1 className="text-5xl font-semibold tracking-tight md:text-6xl">
-                        /screen?c={screenC}&r={screenR}
-                    </h1>
-                    <div className="text-md rounded-full border border-emerald-400/40 bg-emerald-400/10 px-4 py-1 text-emerald-300 md:text-3xl">
-                        Ready
-                    </div>
-                </div>
                 <div className="absolute inset-0 z-200">
                     {isClient && useDeckWrapper ? (
                         <DeckGL
                             controller={false}
                             viewState={localScreenMapView}
-                            layers={[markerLayer, lineLayer]}
+                            layers={
+                                SHOW_DEMO_ARCS ? [ptalLayer, markerLayer, lineLayer] : [ptalLayer]
+                            }
                             style={{ width: '100%', height: '100%' }}
                         >
                             <Map reuseMaps attributionControl={false} mapStyle={MAP_STYLE} />
@@ -458,8 +570,167 @@ function ScreenPage() {
                         />
                     ) : null}
                 </div>
+                <StoryOverlay screenC={screenC} screenR={screenR} />
             </div>
         </main>
+    );
+}
+
+function StoryOverlay({ screenC, screenR }: { screenC: number; screenR: number }) {
+    const className =
+        'pointer-events-none absolute inset-0 font-semibold leading-[1.05] text-zinc-50';
+    const style = {
+        zIndex: 300,
+        fontFamily: '"Space Grotesk Variable", system-ui, sans-serif',
+        textShadow: '0 0.1em 0.25em rgba(0, 0, 0, 0.75)'
+    };
+
+    if (screenC === 0 && screenR === 0) {
+        return (
+            <div className={className} style={style}>
+                <div className="flex h-full items-center" style={{ padding: '4vh 4vw' }}>
+                    <h2
+                        className="m-0 max-w-[65vw] text-left leading-[1.02]"
+                        style={{ fontSize: '20vh' }}
+                    >
+                        {STORY_TITLE_LINE_ONE}
+                        <br />
+                        {STORY_TITLE_LINE_TWO}
+                        <br />
+                        <Highlight>{STORY_TITLE_HIGHLIGHT}</Highlight>
+                        <br />
+                        {STORY_TITLE_LINE_FOUR}
+                    </h2>
+                </div>
+            </div>
+        );
+    }
+
+    if (screenC === 0 && screenR === 1) {
+        return (
+            <div className={className} style={style}>
+                <div className="flex h-full items-center" style={{ padding: '3vh 4vw' }}>
+                    <div
+                        className="flex flex-col"
+                        style={{ width: '65vw', maxWidth: '65vw', gap: '2vh' }}
+                    >
+                        <h2 className="m-0" style={{ fontSize: '20vh' }}>
+                            {PTAL_DEFINITION_HEADING}
+                        </h2>
+                        <p className="m-0" style={{ fontSize: 'min(10vh, 8vw)' }}>
+                            {PTAL_DEFINITION_BODY}
+                        </p>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    if (screenC === 1 && screenR === 0) {
+        return (
+            <div className={className} style={style}>
+                <div
+                    className="absolute"
+                    style={{ top: '4vh', right: '4vw', width: '60vw', maxWidth: '60vw' }}
+                >
+                    <p className="m-0" style={{ fontSize: '4vh' }}>
+                        {PTAL_LEGEND_CAPTION}
+                    </p>
+                    <div
+                        role="group"
+                        aria-label={`PTAL bands across ${PTAL_GRID_SQUARE_COUNT.toLocaleString()} 100 m grid squares`}
+                        className="flex"
+                        style={{ gap: '0.5vw', marginTop: '2vh' }}
+                    >
+                        {PTAL_BAND_CODES.map((band, index) => (
+                            <div
+                                key={band}
+                                className="flex min-w-0 flex-1 flex-col items-center text-center"
+                            >
+                                <div
+                                    style={{
+                                        width: '100%',
+                                        height: '6vh',
+                                        backgroundColor: PTAL_RGB_COLORS[index]
+                                    }}
+                                />
+                                <span style={{ fontSize: '4vh', marginTop: '0.5vh' }}>{band}</span>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    if (screenC === 1 && screenR === 1) {
+        return (
+            <div className={className} style={style}>
+                <p
+                    className="absolute m-0"
+                    style={{
+                        bottom: '3vh',
+                        left: '50%',
+                        width: '90vw',
+                        maxWidth: '90vw',
+                        transform: 'translateX(-50%)',
+                        textAlign: 'center',
+                        fontSize: '4vh'
+                    }}
+                >
+                    {PTAL_DATA_CREDIT}
+                </p>
+            </div>
+        );
+    }
+
+    if (screenC === 2 && (screenR === 0 || screenR === 1)) {
+        const isLowAccess = screenR === 0;
+        const figure = isLowAccess ? LOW_ACCESS_FIGURE : EXCELLENT_ACCESS_FIGURE;
+        const areaPrefix = isLowAccess ? LOW_ACCESS_AREA_PREFIX : EXCELLENT_ACCESS_AREA_PREFIX;
+        const band = isLowAccess ? LOW_ACCESS_BAND : EXCELLENT_ACCESS_BAND;
+        const description = isLowAccess ? LOW_ACCESS_DESCRIPTION : EXCELLENT_ACCESS_DESCRIPTION;
+
+        return (
+            <div className={className} style={style}>
+                <div
+                    className="flex h-full items-center justify-end"
+                    style={{ padding: '3vh 4vw' }}
+                >
+                    <div className="text-right" style={{ width: '65vw', maxWidth: '65vw' }}>
+                        <p className="m-0 font-bold" style={{ fontSize: '30vh' }}>
+                            {figure}
+                        </p>
+                        <p className="m-0" style={{ fontSize: '12vh', marginTop: '1vh' }}>
+                            {areaPrefix}
+                            <Highlight>{band}</Highlight>.
+                        </p>
+                        <p className="m-0" style={{ fontSize: '8vh', marginTop: '1vh' }}>
+                            {description}
+                        </p>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    return null;
+}
+
+function Highlight({ children }: { children: string }) {
+    return (
+        <span
+            style={{
+                backgroundColor: '#fde725',
+                color: '#0b0b0b',
+                padding: '0 0.15em',
+                borderRadius: '0.1em',
+                boxDecorationBreak: 'clone',
+                WebkitBoxDecorationBreak: 'clone'
+            }}
+        >
+            {children}
+        </span>
     );
 }
 
@@ -632,4 +903,19 @@ function lerp(from: number, to: number, t: number) {
 
 function easeInOutCubic(t: number) {
     return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+}
+
+function isPtalData(value: unknown): value is PtalRow[] {
+    if (!Array.isArray(value) || value.length === 0) return false;
+    // Spot-check the first, middle and last rows rather than all 159k.
+    return [0, Math.floor(value.length / 2), value.length - 1].every((i) => {
+        const row = value[i];
+        return (
+            Array.isArray(row) &&
+            row.length === 5 &&
+            row.every((n) => typeof n === 'number') &&
+            row[2] >= 0 &&
+            row[2] <= 8
+        );
+    });
 }

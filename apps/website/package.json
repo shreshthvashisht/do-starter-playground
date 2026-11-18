@@ -13,6 +13,7 @@
         "@deck.gl/core": "catalog:",
         "@deck.gl/layers": "catalog:",
         "@deck.gl/react": "catalog:",
+        "@fontsource-variable/space-grotesk": "catalog:",
         "@phosphor-icons/react": "catalog:",
         "@tanstack/pacer": "catalog:",
         "@tanstack/react-router": "catalog:",

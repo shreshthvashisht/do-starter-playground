@@ -14,7 +14,7 @@ import { isMapCity } from '../lib/realtime/map-cities';
 // join late without waiting for another control interaction.
 const busSharedState: BusSharedState = {
     city: 'london',
-    zoom: 9,
+    zoom: 11,
     selectedSegmentIndexes: []
 };
 

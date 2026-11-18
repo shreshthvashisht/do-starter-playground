@@ -8,6 +8,7 @@ catalog:
   "@deck.gl/core": ^9.2.11
   "@deck.gl/layers": ^9.1.12
   "@deck.gl/react": ^9.1.12
+  "@fontsource-variable/space-grotesk": ^5.3.0
   "@phosphor-icons/react": "^2.1.10"
   "@rolldown/plugin-babel": ^0.2.2
   "@tailwindcss/vite": ^4.2.2
